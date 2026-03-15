@@ -14,7 +14,207 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      api_clients: {
+        Row: {
+          allowed_providers: string[] | null
+          api_key: string
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          rate_limit: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          allowed_providers?: string[] | null
+          api_key?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          rate_limit?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          allowed_providers?: string[] | null
+          api_key?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          rate_limit?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          role: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          role?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      provider_credentials: {
+        Row: {
+          cooldown_until: string | null
+          created_at: string
+          credentials: Json
+          failed_requests: number
+          id: string
+          label: string | null
+          last_used_at: string | null
+          provider_name: string
+          provider_type: Database["public"]["Enums"]["provider_type"]
+          status: Database["public"]["Enums"]["credential_status"]
+          total_requests: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cooldown_until?: string | null
+          created_at?: string
+          credentials?: Json
+          failed_requests?: number
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          provider_name: string
+          provider_type: Database["public"]["Enums"]["provider_type"]
+          status?: Database["public"]["Enums"]["credential_status"]
+          total_requests?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cooldown_until?: string | null
+          created_at?: string
+          credentials?: Json
+          failed_requests?: number
+          id?: string
+          label?: string | null
+          last_used_at?: string | null
+          provider_name?: string
+          provider_type?: Database["public"]["Enums"]["provider_type"]
+          status?: Database["public"]["Enums"]["credential_status"]
+          total_requests?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      request_logs: {
+        Row: {
+          api_client_id: string | null
+          created_at: string
+          credential_id: string | null
+          endpoint: string | null
+          error_message: string | null
+          id: string
+          method: string
+          provider_name: string
+          provider_type: Database["public"]["Enums"]["provider_type"]
+          response_time_ms: number | null
+          status_code: number | null
+          user_id: string
+        }
+        Insert: {
+          api_client_id?: string | null
+          created_at?: string
+          credential_id?: string | null
+          endpoint?: string | null
+          error_message?: string | null
+          id?: string
+          method?: string
+          provider_name: string
+          provider_type: Database["public"]["Enums"]["provider_type"]
+          response_time_ms?: number | null
+          status_code?: number | null
+          user_id: string
+        }
+        Update: {
+          api_client_id?: string | null
+          created_at?: string
+          credential_id?: string | null
+          endpoint?: string | null
+          error_message?: string | null
+          id?: string
+          method?: string
+          provider_name?: string
+          provider_type?: Database["public"]["Enums"]["provider_type"]
+          response_time_ms?: number | null
+          status_code?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "request_logs_api_client_id_fkey"
+            columns: ["api_client_id"]
+            isOneToOne: false
+            referencedRelation: "api_clients"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "request_logs_credential_id_fkey"
+            columns: ["credential_id"]
+            isOneToOne: false
+            referencedRelation: "provider_credentials"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      system_settings: {
+        Row: {
+          created_at: string
+          id: string
+          setting_key: string
+          setting_value: Json
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          setting_key: string
+          setting_value?: Json
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          setting_key?: string
+          setting_value?: Json
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +223,8 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      credential_status: "active" | "cooldown" | "disabled"
+      provider_type: "ai" | "media" | "automation"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +351,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      credential_status: ["active", "cooldown", "disabled"],
+      provider_type: ["ai", "media", "automation"],
+    },
   },
 } as const
