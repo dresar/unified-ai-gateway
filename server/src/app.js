@@ -12,7 +12,7 @@ import { apiKeyAuth } from "./middleware/apiKeyAuth.js";
 import { L1Cache } from "./cache/l1.js";
 import { L2Cache } from "./cache/l2.js";
 import { PoolManager } from "./infra/db.js";
-import { createRedis } from "./infra/redis.js";
+import { createMemoryStore } from "./infra/memoryStore.js";
 import { createWsHub } from "./infra/ws.js";
 import { register, httpRequestDurationMs, apiKeyRotations } from "./infra/metrics.js";
 import { ConsistentHashRing } from "./lib/consistentHash.js";
@@ -61,11 +61,9 @@ export const createServerContext = async () => {
     await ensureAiModelsSchema(db);
   }
 
-  const redis = createRedis();
-  if (typeof redis.connect === "function") await redis.connect();
-
   const l1 = new L1Cache();
-  const l2 = new L2Cache(redis);
+  const l2 = new L2Cache();
+  const rateLimitStore = createMemoryStore();
   const ws = createWsHub();
 
   const ring = new ConsistentHashRing(config.upstreams, { replicas: 200 });
@@ -76,11 +74,10 @@ export const createServerContext = async () => {
     ok: true,
     checkedAt: Date.now(),
     dbOk: true,
-    redisOk: true,
-    redisMode: redis.isMemoryStore ? "memory" : "redis",
-    redisProvider: redis.provider ?? (redis.isMemoryStore ? "memory" : "redis"),
-    redisRequired: config.isProduction ? config.requireRedisInProduction : false,
-    sharedStateOk: !redis.isMemoryStore || !config.isProduction,
+    sharedStateOk: true,
+    sharedStateMode: "local-memory",
+    cacheMode: "local-memory",
+    rateLimitMode: "local-memory",
     runtimeMigrationsEnabled: config.enableRuntimeMigrations,
   };
   const refreshHealth = async () => {
@@ -90,14 +87,7 @@ export const createServerContext = async () => {
     } catch {
       health.dbOk = false;
     }
-    try {
-      await redis.ping();
-      health.redisOk = true;
-    } catch {
-      health.redisOk = false;
-    }
-    health.sharedStateOk = !redis.isMemoryStore || !config.isProduction || !config.requireRedisInProduction;
-    health.ok = health.dbOk && health.redisOk && health.sharedStateOk;
+    health.ok = health.dbOk && health.sharedStateOk;
     health.checkedAt = Date.now();
   };
   
@@ -115,18 +105,15 @@ export const createServerContext = async () => {
 
   const shutdown = async () => {
     if (healthTimer) clearInterval(healthTimer);
-    await Promise.allSettled([
-      db.end?.(),
-      redis.quit?.(),
-    ]);
+    await Promise.allSettled([db.end?.()]);
   };
 
-  return { db, redis, l1, l2, ws, ring, breaker, providerUpstreams, health, refreshHealth, shutdown };
+  return { db, l1, l2, rateLimitStore, ws, ring, breaker, providerUpstreams, health, refreshHealth, shutdown };
 };
 
 export const createApp = (ctx) => {
   const app = new OpenAPIHono();
-  const authRateLimit = rateLimit(ctx.redis, {
+  const authRateLimit = rateLimit(ctx.rateLimitStore, {
     keyPrefix: "auth",
     limit: 10,
     windowMs: 60_000,
@@ -184,6 +171,10 @@ export const createApp = (ctx) => {
   });
 
   if (config.exposeOpenApi) {
+    app.use("/openapi.json", async (c, next) => {
+      await next();
+      c.header("Cache-Control", "public, max-age=0, s-maxage=600, stale-while-revalidate=3600");
+    });
     app.doc("/openapi.json", {
       openapi: "3.1.0",
       info: { title: "Unified AI Gateway API", version: "1.0.0" },
@@ -287,7 +278,7 @@ export const createApp = (ctx) => {
 
   const protectedApi = new OpenAPIHono();
   protectedApi.use("*", jwtAuth());
-  protectedApi.use("*", rateLimit(ctx.redis));
+  protectedApi.use("*", rateLimit(ctx.rateLimitStore));
   // HMAC hanya untuk gateway (API key); dashboard cukup JWT
 
   protectedApi.get("/api/auth/me", (c) => c.json(c.get("user")));
@@ -389,7 +380,7 @@ export const createApp = (ctx) => {
       const { rows } = await ctx.db.query("select key_hash from public.api_keys where id = $1 and tenant_id = $2", [id, user.id]);
       const oldKeyHash = rows[0]?.key_hash;
 
-      const rotated = await rotateApiKey({ db: ctx.db, l1: ctx.l1, l2: ctx.l2, redis: ctx.redis }, { apiKeyId: id, tenantId: user.id, oldKeyHash });
+      const rotated = await rotateApiKey({ db: ctx.db, l1: ctx.l1, l2: ctx.l2 }, { apiKeyId: id, tenantId: user.id, oldKeyHash });
       apiKeyRotations.inc({ tenant_id: user.id });
       ctx.ws.broadcastToTenant?.(user.id, { type: "api_key.rotated", at: Date.now(), tenantId: user.id, oldApiKeyId: id, newApiKeyId: rotated.id });
       return c.json(rotated);
@@ -399,9 +390,24 @@ export const createApp = (ctx) => {
   protectedApi.get("/api/keys/:id/health", async (c) => {
     const user = c.get("user");
     const id = c.req.param("id");
-    const key = `health:${user.id}:${id}`;
-    const data = await ctx.l2.getJson(key);
-    return c.json({ id, ...(data ?? {}) });
+    const { rows } = await ctx.db.query(
+      `select response_time_ms as last_latency_ms,
+              status_code as last_status,
+              created_at as checked_at
+         from public.gateway_request_logs
+        where tenant_id = $1 and api_key_id = $2
+        order by created_at desc
+        limit 1`,
+      [user.id, id]
+    );
+    const latest = rows[0] ?? null;
+    return c.json({
+      id,
+      last_latency_ms: latest?.last_latency_ms ?? null,
+      last_status: latest?.last_status ?? null,
+      checked_at: latest?.checked_at ?? null,
+      remaining: null,
+    });
   });
 
   protectedApi.patch("/api/keys/:id", async (c) => {
@@ -462,10 +468,20 @@ export const createApp = (ctx) => {
   protectedApi.get("/api/dashboard/keys", async (c) => {
     const user = c.get("user");
     const keys = await listApiKeys(ctx.db, { tenantId: user.id });
-    const healthKeys = keys.map((k) => `health:${user.id}:${k.id}`);
-    const healthRows = await ctx.l2.mgetJson(healthKeys);
+    const { rows: healthRows } = await ctx.db.query(
+      `select distinct on (api_key_id)
+          api_key_id,
+          response_time_ms as last_latency_ms,
+          status_code as last_status,
+          created_at as checked_at
+         from public.gateway_request_logs
+        where tenant_id = $1
+        order by api_key_id, created_at desc`,
+      [user.id]
+    );
+    const healthByKeyId = new Map(healthRows.map((row) => [row.api_key_id, row]));
     const enriched = keys.map((k, index) => {
-      const health = healthRows[index] ?? null;
+      const health = healthByKeyId.get(k.id) ?? null;
       return { ...k, health, remaining: health?.remaining ?? null };
     });
     return c.json(enriched);
@@ -1054,10 +1070,10 @@ export const createApp = (ctx) => {
   };
 
   // ctx.ws.broadcast no-op bila tidak ada WebSocket server (serverless).
-  gateway.use("*", apiKeyAuth({ l1: ctx.l1, l2: ctx.l2, db: ctx.db, redis: ctx.redis, ws: ctx.ws }));
-  gateway.use("*", loadHmacSecret({ redis: ctx.redis, db: ctx.db, getTenantId: (c) => c.get("apiKey")?.tenant_id }));
-  gateway.use("*", hmacAuth(ctx.redis));
-  gateway.use("*", rateLimit(ctx.redis, {
+  gateway.use("*", apiKeyAuth({ l1: ctx.l1, l2: ctx.l2, db: ctx.db }));
+  gateway.use("*", loadHmacSecret({ cache: ctx.l1, db: ctx.db, getTenantId: (c) => c.get("apiKey")?.tenant_id }));
+  gateway.use("*", hmacAuth());
+  gateway.use("*", rateLimit(ctx.rateLimitStore, {
     keyPrefix: "rlk",
     limit: (c) => c.get("apiKey")?.quota_per_minute ?? config.rateLimitDefault,
     windowMs: config.rateLimitWindowMs,
@@ -1485,8 +1501,7 @@ export const createApp = (ctx) => {
           upstreamStatus: l1.status,
           metadata: { cache: "l1", cacheable: true },
         });
-        c.header("Cache-Control", "public, max-age=1, stale-if-error=30, stale-while-revalidate=10");
-        c.header("Surrogate-Control", "max-age=30, stale-if-error=300");
+        c.header("Cache-Control", "private, max-age=1, stale-if-error=30, stale-while-revalidate=10");
         return c.body(l1.body, l1.status, l1.headers);
       }
       const l2 = await ctx.l2.getResponse(cacheKey);
@@ -1507,8 +1522,7 @@ export const createApp = (ctx) => {
           upstreamStatus: l2.status,
           metadata: { cache: "l2", cacheable: true },
         });
-        c.header("Cache-Control", "public, max-age=1, stale-if-error=30, stale-while-revalidate=10");
-        c.header("Surrogate-Control", "max-age=30, stale-if-error=300");
+        c.header("Cache-Control", "private, max-age=1, stale-if-error=30, stale-while-revalidate=10");
         return c.body(l2.body, l2.status, l2.headers);
       }
     }
@@ -1560,14 +1574,6 @@ export const createApp = (ctx) => {
         metadata: { upstream: url.origin, cacheable },
       });
 
-      const remaining = c.get("rateLimit")?.remaining ?? null;
-      const healthCacheKey = `health:${apiKey.tenant_id}:${apiKey.id}`;
-      const shouldPersistHealth = res.status >= 400 || !ctx.l1.get(`health-write:${healthCacheKey}`);
-      if (shouldPersistHealth) {
-        ctx.l1.set(`health-write:${healthCacheKey}`, true, 10_000);
-        await ctx.l2.setJson(healthCacheKey, { last_latency_ms: ms, last_status: res.status, remaining }, 30000);
-      }
-
       if (res.status >= 400) {
         ctx.ws.broadcastToTenant?.(apiKey.tenant_id, { type: "gateway.error", at: Date.now(), tenantId: apiKey.tenant_id, apiKeyId: apiKey.id, status: res.status, provider });
       }
@@ -1577,8 +1583,7 @@ export const createApp = (ctx) => {
         const cached = { status: res.status, headers, body: responseBuffer };
         ctx.l1.set(cacheKey, cached, 1000);
         await ctx.l2.setResponse(cacheKey, cached, 30000);
-        c.header("Cache-Control", "public, max-age=1, stale-if-error=30, stale-while-revalidate=10");
-        c.header("Surrogate-Control", "max-age=30, stale-if-error=300");
+        c.header("Cache-Control", "private, max-age=1, stale-if-error=30, stale-while-revalidate=10");
         return c.body(responseBuffer, res.status, headers);
       }
       if (responseBuffer) {
@@ -1608,8 +1613,7 @@ export const createApp = (ctx) => {
       if (cacheable) {
         const stale = ctx.l1.getStale(cacheKey) ?? (await ctx.l2.getResponse(cacheKey));
         if (stale) {
-          c.header("Cache-Control", "public, max-age=0, stale-if-error=30");
-          c.header("Surrogate-Control", "max-age=0, stale-if-error=300");
+          c.header("Cache-Control", "private, max-age=0, stale-if-error=30");
           return c.body(stale.body, stale.status, stale.headers);
         }
       }

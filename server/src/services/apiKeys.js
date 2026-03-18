@@ -122,7 +122,7 @@ export const listApiKeys = async (db, { tenantId }) => {
   return rows;
 };
 
-// Cached get with L1 -> L2 -> DB
+// Cached get with L1 -> local L2 -> DB
 export const getApiKey = async ({ db, l1, l2 }, keyHash) => {
   // 1. L1 Cache
   const l1Key = `apikey:${keyHash}`;
@@ -162,7 +162,7 @@ export const disableApiKey = async (db, { id, tenantId, graceUntil }) => {
   return rowCount > 0;
 };
 
-export const rotateApiKey = async ({ db, l1, l2, redis }, { apiKeyId, tenantId, oldKeyHash }) => {
+export const rotateApiKey = async ({ db, l1, l2 }, { apiKeyId, tenantId, oldKeyHash }) => {
   const graceUntil = new Date(Date.now() + config.apiKeyGraceMs).toISOString();
   
   const { rows: oldRows } = await db.query(
@@ -187,32 +187,22 @@ export const rotateApiKey = async ({ db, l1, l2, redis }, { apiKeyId, tenantId, 
   // Invalidate caches for old key
   if (oldKeyHash) {
     const l1Key = `apikey:${oldKeyHash}`;
-    // We don't delete immediately, we update it to reflect disabled status with grace period
-    // But for simplicity and to force re-fetch, let's delete. 
-    // Wait, if we delete, the next request will fetch from DB and see it's disabled.
-    // That's fine.
-    // However, for "graceful degradation", maybe we want to keep it?
-    // The requirement says: "grace_until".
-    
-    // Let's invalidate so next fetch gets the updated status
-    l1.delete(l1Key); // assuming L1 has delete
-    await redis.del(l1Key); // direct redis del for L2
+    l1.delete(l1Key);
+    await l2.delete(l1Key);
   }
 
   return { ...created, grace_until: graceUntil };
 };
 
-export const trackApiKeyError = async ({ redis, db, l1, l2, ws }, { apiKeyId, tenantId, keyHash }) => {
+export const trackApiKeyError = async ({ db, l1, l2, ws }, { apiKeyId, tenantId, keyHash }) => {
   const errorKey = `apikey:errors:${apiKeyId}`;
-  // Increment error count, expire in 5 seconds
-  const count = await redis.incr(errorKey);
-  if (count === 1) {
-    await redis.expire(errorKey, 5);
-  }
+  const existing = Number(l1.get(errorKey) ?? 0);
+  const count = existing + 1;
+  l1.set(errorKey, count, 5_000);
 
   if (count > 3) {
     try {
-      const newKey = await rotateApiKey({ db, l1, l2, redis }, { apiKeyId, tenantId, oldKeyHash: keyHash });
+      const newKey = await rotateApiKey({ db, l1, l2 }, { apiKeyId, tenantId, oldKeyHash: keyHash });
       
       if (ws) {
         ws.broadcastToTenant?.(tenantId, { 

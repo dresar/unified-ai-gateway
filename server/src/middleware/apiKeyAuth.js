@@ -9,7 +9,7 @@ function getApiKeyFromRequest(c) {
   return null;
 }
 
-export const apiKeyAuth = ({ l1, l2, db, redis, ws }) => async (c, next) => {
+export const apiKeyAuth = ({ l1, l2, db }) => async (c, next) => {
   const plain = getApiKeyFromRequest(c);
   if (!plain) {
     return c.json({ error: "Missing API key (use X-API-Key or Authorization: Bearer <key>)" }, 401);

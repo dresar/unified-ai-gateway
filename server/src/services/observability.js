@@ -1,5 +1,4 @@
-import { apiKeyRotations, gatewayAlertsTotal, gatewayAnomaliesTotal, gatewayAutoRotationsTotal, gatewayCredentialCooldownsTotal } from "../infra/metrics.js"
-import { rotateApiKey } from "./apiKeys.js"
+import { gatewayAlertsTotal, gatewayAnomaliesTotal, gatewayCredentialCooldownsTotal } from "../infra/metrics.js"
 
 const BURST_THRESHOLD_WARNING = 80
 const BURST_THRESHOLD_CRITICAL = 160
@@ -78,6 +77,16 @@ async function getRecentApiKeyStats(db, { apiKeyId }) {
     requests: Number(rows[0]?.requests ?? 0),
     domains: Number(rows[0]?.domains ?? 0),
   }
+}
+
+async function getRecentBurstCount(db, { apiKeyId }) {
+  const { rows } = await db.query(
+    `select count(*)::int as requests
+       from public.gateway_request_logs
+      where api_key_id = $1 and created_at >= now() - interval '5 seconds'`,
+    [apiKeyId]
+  )
+  return Number(rows[0]?.requests ?? 0)
 }
 
 async function getProviderErrorStats(db, { tenantId, provider }) {
@@ -282,36 +291,19 @@ export async function markCredentialCooldown(ctx, { tenantId, credentialId, prov
 
 async function maybeAutoRotateApiKey(ctx, event, leakRisk) {
   if (!event.apiKeyId || !event.apiKeyKeyHash || leakRisk !== "critical") return null
-  const rotateLock = await ctx.redis.set(`obs:rotate-lock:${event.apiKeyId}`, "1", { NX: true, EX: 300 })
-  if (!rotateLock) return null
-  const rotated = await rotateApiKey(
-    { db: ctx.db, l1: ctx.l1, l2: ctx.l2, redis: ctx.redis },
-    { apiKeyId: event.apiKeyId, tenantId: event.tenantId, oldKeyHash: event.apiKeyKeyHash }
-  ).catch(() => null)
-  if (!rotated) return null
-  apiKeyRotations.inc({ tenant_id: event.tenantId })
-  gatewayAutoRotationsTotal.inc({ tenant_id: event.tenantId, reason: "possible_api_key_leak" })
   await createAlert(ctx, {
     tenantId: event.tenantId,
     severity: "critical",
-    category: "auto_rotation_executed",
-    title: "API key dirotasi otomatis",
-    message: `Gateway API key untuk ${event.provider} dirotasi otomatis karena terdeteksi pola kebocoran atau burst tidak wajar.`,
+    category: "auto_rotation_skipped",
+    title: "Auto-rotation dinonaktifkan sementara",
+    message: `Indikasi kebocoran terdeteksi untuk ${event.provider}, tetapi auto-rotation lintas instance dimatikan sementara saat mode no-Redis aktif.`,
     provider: event.provider,
-    apiKeyId: rotated.id,
+    apiKeyId: event.apiKeyId,
     credentialId: event.credentialId,
-    dedupeKey: `auto-rotate:${event.apiKeyId}`,
-    metadata: { old_api_key_id: event.apiKeyId, new_api_key_id: rotated.id },
+    dedupeKey: `auto-rotate-skipped:${event.apiKeyId}`,
+    metadata: { leak_risk: leakRisk, reason: "no_redis_quick_mode" },
   })
-  ctx.ws.broadcastToTenant?.(event.tenantId, {
-    type: "api_key.auto_rotated",
-    tenantId: event.tenantId,
-    at: Date.now(),
-    oldApiKeyId: event.apiKeyId,
-    newApiKeyId: rotated.id,
-    reason: "possible_api_key_leak",
-  })
-  return rotated
+  return null
 }
 
 export async function logGatewayRequest(ctx, event) {
@@ -351,8 +343,7 @@ export async function logGatewayRequest(ctx, event) {
 
   const anomalyTypes = []
   const alerts = []
-  const burstCount = await ctx.redis.incr(`obs:burst:${event.apiKeyId}`)
-  if (burstCount === 1) await ctx.redis.expire(`obs:burst:${event.apiKeyId}`, 5)
+  const burstCount = await getRecentBurstCount(ctx.db, { apiKeyId: event.apiKeyId })
   const recentApiKeyStats = await getRecentApiKeyStats(ctx.db, { apiKeyId: event.apiKeyId })
 
   if (burstCount >= BURST_THRESHOLD_WARNING) {

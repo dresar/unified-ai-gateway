@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 
-export const loadHmacSecret = ({ redis, db, getTenantId }) => async (c, next) => {
+export const loadHmacSecret = ({ cache, db, getTenantId }) => async (c, next) => {
   const signature = c.req.header("x-signature") ?? "";
   if (!signature || signature.length < 16) {
     c.set("hmacSecret", null);
@@ -14,7 +14,7 @@ export const loadHmacSecret = ({ redis, db, getTenantId }) => async (c, next) =>
   }
 
   const cacheKey = `hmac:${tenantId}`;
-  const cached = await redis.get(cacheKey);
+  const cached = cache?.get?.(cacheKey);
   if (cached) {
     c.set("hmacSecret", cached);
     return next();
@@ -27,7 +27,7 @@ export const loadHmacSecret = ({ redis, db, getTenantId }) => async (c, next) =>
     await db.query("update public.users set hmac_secret = $1 where id = $2", [secret, tenantId]);
   }
 
-  await redis.set(cacheKey, secret, { EX: 1800 });
+  cache?.set?.(cacheKey, secret, 30 * 60 * 1000);
   c.set("hmacSecret", secret);
   return next();
 };

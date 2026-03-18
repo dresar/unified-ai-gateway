@@ -18,7 +18,7 @@ if remaining < 0 then remaining = 0 end
 return { current, ttl, remaining }
 `;
 
-export const rateLimit = (redis, { keyPrefix = "rl", limit = config.rateLimitDefault, windowMs = config.rateLimitWindowMs, onLimitExceeded } = {}) =>
+export const rateLimit = (store, { keyPrefix = "rl", limit = config.rateLimitDefault, windowMs = config.rateLimitWindowMs, onLimitExceeded } = {}) =>
   async (c, next) => {
     const user = c.get("user");
     const apiKeyId = c.get("apiKey")?.id ?? null;
@@ -34,7 +34,7 @@ export const rateLimit = (redis, { keyPrefix = "rl", limit = config.rateLimitDef
     let ttl;
     let remaining;
     try {
-      [current, ttl, remaining] = await redis.eval(
+      [current, ttl, remaining] = await store.eval(
         lua,
         1,
         key,
@@ -45,7 +45,7 @@ export const rateLimit = (redis, { keyPrefix = "rl", limit = config.rateLimitDef
     } catch (error) {
       console.error(`[RateLimit] ${c.req.method} ${route} failed`, error);
       return c.json(
-        { error: "Layanan login sedang bermasalah. Coba lagi beberapa saat." },
+        { error: "Layanan pembatas request sedang bermasalah. Coba lagi beberapa saat." },
         503,
       );
     }

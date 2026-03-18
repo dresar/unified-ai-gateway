@@ -59,9 +59,6 @@ export const config = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? "8787"),
   databaseUrl: process.env.DATABASE_URL ?? "",
-  redisUrl: process.env.REDIS_URL ?? "",
-  upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL ?? "",
-  upstashRedisRestToken: process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN ?? "",
   jwtSecret: process.env.JWT_SECRET ?? "",
   hmacMaxSkewMs: Number(process.env.HMAC_MAX_SKEW_MS ?? "30000"),
   nonceTtlSeconds: Number(process.env.NONCE_TTL_SECONDS ?? "30"),
@@ -81,7 +78,6 @@ export const config = {
   allowCredentialExport: parseBoolean(process.env.ALLOW_CREDENTIAL_EXPORT, !isProduction),
   enableSelfRegistration: parseBoolean(process.env.ENABLE_SELF_REGISTRATION, !isProduction),
   enableRuntimeMigrations: parseBoolean(process.env.ENABLE_RUNTIME_MIGRATIONS, !isProduction),
-  requireRedisInProduction: parseBoolean(process.env.REQUIRE_REDIS_IN_PRODUCTION, true),
   /** Map provider -> base URL. Dipakai gateway untuk proxy. Tidak pakai .env (hardcode). */
   providerUpstreams: {
     gemini: "https://generativelanguage.googleapis.com",
@@ -112,14 +108,4 @@ export const assertConfig = () => {
     );
   }
   if (!config.jwtSecret) throw new Error("JWT_SECRET wajib di-set");
-  if (
-    config.isProduction &&
-    config.requireRedisInProduction &&
-    !config.redisUrl &&
-    !(config.upstashRedisRestUrl && config.upstashRedisRestToken)
-  ) {
-    throw new Error(
-      "Redis production wajib di-set. Gunakan REDIS_URL, pasangan UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN, atau KV_REST_API_URL/KV_REST_API_TOKEN."
-    );
-  }
 };

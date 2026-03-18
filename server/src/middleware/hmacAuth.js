@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import { safeEqualHex, sha256Hex, signHmacHex } from "../security/hmac.js";
 
-export const hmacAuth = (redis) => async (c, next) => {
+export const hmacAuth = () => async (c, next) => {
   const signature = c.req.header("x-signature") ?? "";
   if (!signature || signature.length < 16) return next();
 
@@ -18,10 +18,7 @@ export const hmacAuth = (redis) => async (c, next) => {
   const now = Date.now();
   if (Math.abs(now - ts) > config.hmacMaxSkewMs) return c.json({ error: "Invalid signature" }, 401);
 
-  const nonceKey = `nonce:${nonce}`;
-  const nonceOk = await redis.set(nonceKey, "1", { NX: true, EX: config.nonceTtlSeconds });
-  if (!nonceOk) return c.json({ error: "Invalid signature" }, 401);
-
+  // Mode no-Redis: nonce tetap wajib dikirim, tapi replay storage lintas instance dimatikan sementara.
   const method = c.req.method.toUpperCase();
   const url = new URL(c.req.url);
   const path = url.pathname + url.search;

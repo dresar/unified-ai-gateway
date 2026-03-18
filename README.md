@@ -7,13 +7,12 @@ Gateway API kinerja tinggi dengan manajemen API key terpusat, load balancing, ca
 - **Kinerja Ekstrem**: Target latensi ≤0,1 detik.
 - **Manajemen API Key**:
   - Generator secure 256-bit dengan prefix tenant.
-  - Rotasi otomatis saat error rate tinggi (>3 error/5s).
-  - Health check sub-millisecond.
-  - Kuota dan rate limiting (Redis).
+  - Health check berbasis log terbaru di database.
+  - Kuota dan rate limiting lokal per instance.
 - **Arsitektur Micro-service Berlapis**:
   - **L1 Cache**: In-memory LRU (lokal).
-  - **L2 Cache**: Redis (terdistribusi).
-  - **L3**: CDN (via header cache-control).
+  - **L2 Cache**: In-memory TTL lokal per instance.
+  - **L3**: HTTP cache aman untuk route publik tertentu.
   - **Circuit Breaker**: Half-open setelah 500ms.
   - **Consistent Hashing**: Load balancing upstream.
 - **Keamanan**: JWT + HMAC Signature verification.
@@ -26,8 +25,6 @@ Gateway API kinerja tinggi dengan manajemen API key terpusat, load balancing, ca
 
 - Node.js v18+
 - PostgreSQL
-- Redis (atau kompatibel, misal Upstash untuk serverless)
-
 ## Setup
 
 1.  **Install Dependencies**
@@ -42,7 +39,7 @@ Gateway API kinerja tinggi dengan manajemen API key terpusat, load balancing, ca
     DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
     JWT_SECRET=rahasia_super_panjang_minimal_32_karakter
     ```
-    Untuk production serverless (Vercel/Lambda), gunakan template [`.env.production.example`](.env.production.example) dan set `REDIS_URL` agar rate limit/cache shared antar instance. Tanpa `REDIS_URL`, state hanya tersimpan per worker dan perilaku production tidak konsisten.
+    Untuk production serverless (Vercel/Lambda), gunakan template [`.env.production.example`](.env.production.example). Mode default sekarang tidak memakai Redis agar cold start dan login di Vercel lebih ringan.
 
 3.  **Migrasi Database**
     Jalankan script migrasi untuk membuat tabel yang diperlukan:
@@ -78,20 +75,15 @@ npm start
 - Frontend statis dibangun ke `dist`, lalu route `/api/*`, `/gateway/*`, dan `/healthz` diarahkan ke `api/index.js` lewat `vercel.json`.
 - Set environment variables di dashboard Vercel berdasarkan `.env.production.example`.
 - Gunakan region Vercel yang dekat dengan region database. Jika database Neon Anda berada di `ap-southeast-1`, pilih region deploy yang sedekat mungkin untuk menekan latency.
-- `REDIS_URL` sangat disarankan untuk production agar rate limit, cache, dan health state shared antar instance.
 - `VITE_ENABLE_REALTIME_ALERTS=false` disarankan di Vercel karena WebSocket tidak menjadi jalur realtime utama pada serverless runtime.
 - `build:vercel` saat ini menjalankan migrasi database sebelum build, jadi `DATABASE_URL` harus tersedia pada build environment Vercel.
 
 ## API Key Management & Troubleshooting
 
 ### Rotasi Key Otomatis
-Sistem akan memantau error rate (status 4xx/5xx) pada setiap API Key.
-- **Trigger**: > 3 error dalam 5 detik.
-- **Action**:
-  1. Key lama di-mark `disabled` namun diberi grace period (default 60s) agar request in-flight tidak gagal.
-  2. Key baru digenerate otomatis.
-  3. Key baru dikembalikan ke klien (jika klien mendukung protokol rotasi) atau admin diberitahu via WebSocket.
-  4. Cache L1/L2 untuk key lama di-invalidasi.
+Pada mode no-Redis cepat stabil, auto-rotation lintas instance dinonaktifkan sementara.
+- Sistem tetap mencatat anomali dan membuat alert.
+- Rotasi manual dari dashboard tetap tersedia.
 
 ### Troubleshooting
 - **Error "Email sudah terdaftar" saat register**: Cek tabel `users`, email harus unik.
