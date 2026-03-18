@@ -5,8 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Zap } from "lucide-react";
 
+const showDevLogin = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_LOGIN === "true";
+
 const LoginPage = () => {
-  const { signIn } = useAuth();
+  const { signIn, devLogin } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,6 +21,16 @@ const LoginPage = () => {
 
     const { error } = await signIn(email, password);
 
+    if (error) {
+      setError(error.message);
+    }
+    setLoading(false);
+  };
+
+  const handleDevLogin = async () => {
+    setError("");
+    setLoading(true);
+    const { error } = await devLogin();
     if (error) {
       setError(error.message);
     }
@@ -81,6 +93,12 @@ const LoginPage = () => {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Memproses..." : "Masuk"}
             </Button>
+
+            {showDevLogin && (
+              <Button type="button" variant="outline" className="w-full" disabled={loading} onClick={handleDevLogin}>
+                Login Dev
+              </Button>
+            )}
           </form>
         </div>
       </div>

@@ -6,6 +6,7 @@ interface AuthContextType {
   loading: boolean;
   setUser: (u: { id: string; email: string; displayName: string | null } | null) => void;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  devLogin: (email?: string, password?: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
@@ -45,7 +46,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(result.user);
       return { error: null };
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Login gagal";
+      let message = "Login gagal.";
+      if (err instanceof ApiError) {
+        if (err.status === 401) message = "Email atau password salah.";
+        else if (err.status === 429) message = "Terlalu banyak percobaan login. Coba lagi sebentar.";
+        else if (err.status >= 500) message = "Server login sedang bermasalah. Periksa deployment atau coba lagi sesaat.";
+        else message = err.message;
+      } else if (err instanceof TypeError) {
+        message = "Server tidak dapat dijangkau. Periksa URL API atau status server.";
+      }
+      return { error: new Error(message) };
+    }
+  };
+
+  const devLogin = async (email = "admin@example.com", password = "password123") => {
+    try {
+      const result = await apiFetch<{ token: string; user: { id: string; email: string; displayName: string | null } }>(
+        "/api/auth/dev-login",
+        { method: "POST", body: JSON.stringify({ email, password }) },
+      );
+      setAuthToken(result.token);
+      setUser(result.user);
+      return { error: null };
+    } catch (err) {
+      const message = err instanceof ApiError ? err.message : "Dev login gagal";
       return { error: new Error(message) };
     }
   };
@@ -71,7 +95,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, setUser, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, setUser, signIn, devLogin, signUp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

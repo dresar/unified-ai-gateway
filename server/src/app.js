@@ -258,17 +258,26 @@ export const createApp = (ctx) => {
       responses: { 200: { description: "OK" } },
     },
     async (c) => {
-      const { email, password } = c.req.valid("json");
-      const { rows } = await ctx.db.query(
-        "select id, email, display_name, password_hash, hmac_secret from public.users where email = $1 limit 1",
-        [email.trim().toLowerCase()],
-      );
-      const user = rows[0];
-      if (!user) return c.json({ error: "Email atau password salah" }, 401);
-      const ok = await bcrypt.compare(password, user.password_hash);
-      if (!ok) return c.json({ error: "Email atau password salah" }, 401);
-      const token = await signJwt({ sub: user.id, email: user.email, displayName: user.display_name ?? null });
-      return c.json({ token, user: { id: user.id, email: user.email, displayName: user.display_name ?? null } });
+      try {
+        const { email, password } = c.req.valid("json");
+        const normalizedEmail = email.trim().toLowerCase();
+        const { rows } = await ctx.db.query(
+          "select id, email, display_name, password_hash, hmac_secret from public.users where email = $1 limit 1",
+          [normalizedEmail],
+        );
+        const user = rows[0];
+        if (!user) return c.json({ error: "Email atau password salah." }, 401);
+        const ok = await bcrypt.compare(password, user.password_hash);
+        if (!ok) return c.json({ error: "Email atau password salah." }, 401);
+        const token = await signJwt({ sub: user.id, email: user.email, displayName: user.display_name ?? null });
+        return c.json({ token, user: { id: user.id, email: user.email, displayName: user.display_name ?? null } });
+      } catch (error) {
+        console.error("[Auth] login failed", error);
+        return c.json(
+          { error: "Login gagal karena layanan server sedang bermasalah." },
+          503,
+        );
+      }
     },
   );
 

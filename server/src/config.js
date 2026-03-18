@@ -8,7 +8,8 @@ const parseNumber = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const isProduction = process.env.NODE_ENV === "production";
+const appMode = (process.env.MODE ?? process.env.NODE_ENV ?? "development").trim().toLowerCase();
+const isProduction = process.env.NODE_ENV === "production" || appMode === "production";
 const isServerless = !!(
   process.env.VERCEL ||
   process.env.AWS_LAMBDA_FUNCTION_NAME ||
@@ -34,6 +35,7 @@ const parseOrigins = () => {
 };
 
 export const config = {
+  mode: appMode,
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: Number(process.env.PORT ?? "8787"),
   databaseUrl: process.env.DATABASE_URL ?? "",
@@ -50,7 +52,7 @@ export const config = {
   maxProxyBodyBytes: parseNumber(process.env.MAX_PROXY_BODY_BYTES, 2 * 1024 * 1024),
   upstreams: [],
   corsOrigins: parseOrigins(),
-  enableDevLogin: parseBoolean(process.env.ENABLE_DEV_LOGIN, false),
+  enableDevLogin: parseBoolean(process.env.ENABLE_DEV_LOGIN, !isProduction),
   enableInternalTestRoutes: parseBoolean(process.env.ENABLE_INTERNAL_TEST_ROUTES, !isProduction),
   exposeMetrics: parseBoolean(process.env.EXPOSE_METRICS, !isProduction && !isServerless),
   exposeOpenApi: parseBoolean(process.env.EXPOSE_OPENAPI, !isProduction),

@@ -72,9 +72,12 @@ export function createMemoryStore() {
       expiry.set(key, Date.now() + seconds * 1000);
       return 1;
     },
-    async eval(script, opts) {
-      const key = opts?.keys?.[0];
-      const args = opts?.arguments ?? [];
+    async eval(script, ...argsOrOpts) {
+      const opts = typeof argsOrOpts[0] === "object" && argsOrOpts[0] !== null
+        ? argsOrOpts[0]
+        : null;
+      const key = opts ? opts.keys?.[0] : argsOrOpts[1];
+      const args = opts ? (opts.arguments ?? []) : argsOrOpts.slice(2);
       const windowMs = Number(args[1]) || 60000;
       const limit = Number(args[2]) || 1000;
       if (!key) return [0, 0, limit];

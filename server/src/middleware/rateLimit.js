@@ -30,10 +30,25 @@ export const rateLimit = (redis, { keyPrefix = "rl", limit = config.rateLimitDef
     const key = `${keyPrefix}:${idPart}:${route}`;
 
     const now = Date.now();
-    const [current, ttl, remaining] = await redis.eval(lua, {
-      keys: [key],
-      arguments: [String(now), String(windowMs), String(safeLimit)],
-    });
+    let current;
+    let ttl;
+    let remaining;
+    try {
+      [current, ttl, remaining] = await redis.eval(
+        lua,
+        1,
+        key,
+        String(now),
+        String(windowMs),
+        String(safeLimit),
+      );
+    } catch (error) {
+      console.error(`[RateLimit] ${c.req.method} ${route} failed`, error);
+      return c.json(
+        { error: "Layanan login sedang bermasalah. Coba lagi beberapa saat." },
+        503,
+      );
+    }
     const state = {
       key,
       limit: safeLimit,
