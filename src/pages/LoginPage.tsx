@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Zap } from "lucide-react";
 
-const showDevLogin = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEV_LOGIN === "true";
+const showDevLogin = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEV_LOGIN !== "false";
 
 const LoginPage = () => {
   const { signIn, devLogin } = useAuth();

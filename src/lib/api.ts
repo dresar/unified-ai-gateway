@@ -1,5 +1,9 @@
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
 
+type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
+};
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -14,34 +18,48 @@ export const setAuthToken = (token: string | null) => {
   else localStorage.removeItem("auth_token");
 };
 
-export const apiFetch = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+export const apiFetch = async <T>(path: string, init: ApiFetchOptions = {}): Promise<T> => {
+  const { timeoutMs, signal: externalSignal, ...requestInit } = init;
   const token = getAuthToken();
-  const headers = new Headers(init.headers);
-  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const headers = new Headers(requestInit.headers);
+  if (requestInit.body && !(requestInit.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const res = await fetch(`${apiBaseUrl}${path}`, { ...init, headers });
-  if (res.status === 204) return undefined as T;
-
-  const contentType = res.headers.get("content-type") ?? "";
-  const isJson = contentType.includes("application/json");
-  const payload = isJson ? await res.json() : await res.text();
-
-  if (!res.ok) {
-    if (res.status === 401 && path.startsWith("/api/")) {
-      setAuthToken(null);
-      window.location.href = "/login";
-      throw new ApiError(401, "Sesi tidak valid. Silakan login lagi.");
-    }
-    const message =
-      isJson && payload && typeof payload === "object" && "error" in payload
-        ? String(payload.error)
-        : typeof payload === "string"
-          ? payload
-          : "Permintaan gagal.";
-    throw new ApiError(res.status, message);
+  const controller = new AbortController();
+  if (externalSignal) {
+    if (externalSignal.aborted) controller.abort(externalSignal.reason);
+    else externalSignal.addEventListener("abort", () => controller.abort(externalSignal.reason), { once: true });
   }
+  const timeoutId = timeoutMs
+    ? window.setTimeout(() => controller.abort(new DOMException("Request timed out", "TimeoutError")), timeoutMs)
+    : null;
 
-  return payload as T;
+  try {
+    const res = await fetch(`${apiBaseUrl}${path}`, { ...requestInit, headers, signal: controller.signal });
+    if (res.status === 204) return undefined as T;
+
+    const contentType = res.headers.get("content-type") ?? "";
+    const isJson = contentType.includes("application/json");
+    const payload = isJson ? await res.json() : await res.text();
+
+    if (!res.ok) {
+      if (res.status === 401 && path.startsWith("/api/")) {
+        setAuthToken(null);
+        window.location.href = "/login";
+        throw new ApiError(401, "Sesi tidak valid. Silakan login lagi.");
+      }
+      const message =
+        isJson && payload && typeof payload === "object" && "error" in payload
+          ? String(payload.error)
+          : typeof payload === "string"
+            ? payload
+            : "Permintaan gagal.";
+      throw new ApiError(res.status, message);
+    }
+
+    return payload as T;
+  } finally {
+    if (timeoutId != null) window.clearTimeout(timeoutId);
+  }
 };
 

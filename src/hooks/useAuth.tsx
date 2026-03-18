@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const result = await apiFetch<{ token: string; user: { id: string; email: string; displayName: string | null } }>(
         "/api/auth/login",
-        { method: "POST", body: JSON.stringify({ email, password }) },
+        { method: "POST", body: JSON.stringify({ email, password }), timeoutMs: 5000 },
       );
       setAuthToken(result.token);
       setUser(result.user);
@@ -52,6 +52,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         else if (err.status === 429) message = "Terlalu banyak percobaan login. Coba lagi sebentar.";
         else if (err.status >= 500) message = "Server login sedang bermasalah. Periksa deployment atau coba lagi sesaat.";
         else message = err.message;
+      } else if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+        message = "Login melebihi batas 5 detik. Kemungkinan database, Redis, atau server Vercel sedang lambat.";
       } else if (err instanceof TypeError) {
         message = "Server tidak dapat dijangkau. Periksa URL API atau status server.";
       }
@@ -63,13 +65,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const result = await apiFetch<{ token: string; user: { id: string; email: string; displayName: string | null } }>(
         "/api/auth/dev-login",
-        { method: "POST", body: JSON.stringify({ email, password }) },
+        { method: "POST", body: JSON.stringify({ email, password }), timeoutMs: 5000 },
       );
       setAuthToken(result.token);
       setUser(result.user);
       return { error: null };
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : "Dev login gagal";
+      let message = err instanceof ApiError ? err.message : "Dev login gagal";
+      if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
+        message = "Dev login melebihi batas 5 detik. Periksa performa backend.";
+      }
       return { error: new Error(message) };
     }
   };
