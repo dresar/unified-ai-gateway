@@ -18,7 +18,7 @@ export const hmacAuth = () => async (c, next) => {
   const now = Date.now();
   if (Math.abs(now - ts) > config.hmacMaxSkewMs) return c.json({ error: "Invalid signature" }, 401);
 
-  // Mode no-Redis: nonce tetap wajib dikirim, tapi replay storage lintas instance dimatikan sementara.
+  // Pada mode local-memory, nonce tetap wajib dikirim, tetapi replay storage lintas instance tidak tersedia.
   const method = c.req.method.toUpperCase();
   const url = new URL(c.req.url);
   const path = url.pathname + url.search;

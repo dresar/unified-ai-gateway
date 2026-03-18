@@ -3,6 +3,8 @@ import { createServerContext, createApp } from '../server/src/app.js';
 
 // Context di-cache per worker (warm start); createServerContext sudah serverless-safe
 // (no setInterval di serverless, ws.broadcast no-op bila tidak ada WebSocket server).
+export const maxDuration = 60;
+
 let appPromise;
 
 export default async function handler(req, res) {

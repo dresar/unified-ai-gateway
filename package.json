@@ -12,7 +12,7 @@
     "start": "node server/index.js",
     "migrate": "node server/migrate.js",
     "build": "vite build",
-    "build:vercel": "npm run migrate && npm run build",
+    "build:vercel": "npm run build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",

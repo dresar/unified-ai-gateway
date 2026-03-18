@@ -296,17 +296,18 @@ async function maybeAutoRotateApiKey(ctx, event, leakRisk) {
     severity: "critical",
     category: "auto_rotation_skipped",
     title: "Auto-rotation dinonaktifkan sementara",
-    message: `Indikasi kebocoran terdeteksi untuk ${event.provider}, tetapi auto-rotation lintas instance dimatikan sementara saat mode no-Redis aktif.`,
+    message: `Indikasi kebocoran terdeteksi untuk ${event.provider}, tetapi auto-rotation lintas instance dimatikan sementara saat mode local-memory aktif.`,
     provider: event.provider,
     apiKeyId: event.apiKeyId,
     credentialId: event.credentialId,
     dedupeKey: `auto-rotate-skipped:${event.apiKeyId}`,
-    metadata: { leak_risk: leakRisk, reason: "no_redis_quick_mode" },
+    metadata: { leak_risk: leakRisk, reason: "local_memory_mode" },
   })
   return null
 }
 
 export async function logGatewayRequest(ctx, event) {
+  const logMode = ctx.gatewayLogMode ?? "full"
   const errorType = classifyErrorType({
     statusCode: event.statusCode,
     errorMessage: event.errorMessage,
@@ -340,6 +341,7 @@ export async function logGatewayRequest(ctx, event) {
   )
   const logRow = rows[0]
   await upsertProviderCredentialStats(ctx.db, { credentialId: event.credentialId, success: !event.statusCode || event.statusCode < 400 })
+  if (logMode !== "full") return logRow
 
   const anomalyTypes = []
   const alerts = []

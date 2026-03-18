@@ -13,7 +13,7 @@ Gateway API kinerja tinggi dengan manajemen API key terpusat, load balancing, ca
   - **L1 Cache**: In-memory LRU (lokal).
   - **L2 Cache**: In-memory TTL lokal per instance.
   - **L3**: HTTP cache aman untuk route publik tertentu.
-  - **Circuit Breaker**: Half-open setelah 500ms.
+  - **Circuit Breaker**: Timeout upstream dan half-open yang bisa dikonfigurasi.
   - **Consistent Hashing**: Load balancing upstream.
 - **Keamanan**: JWT + HMAC Signature verification.
 - **Serverless Ready**: Kompatibel dengan Node.js runtime (Lambda, Railway, dll).
@@ -39,7 +39,7 @@ Gateway API kinerja tinggi dengan manajemen API key terpusat, load balancing, ca
     DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
     JWT_SECRET=rahasia_super_panjang_minimal_32_karakter
     ```
-    Untuk production serverless (Vercel/Lambda), gunakan template [`.env.production.example`](.env.production.example). Mode default sekarang tidak memakai Redis agar cold start dan login di Vercel lebih ringan.
+    Untuk production serverless (Vercel/Lambda), gunakan template [`.env.production.example`](.env.production.example). Mode default sekarang memakai cache dan rate limit lokal per instance agar cold start di Vercel lebih ringan.
 
 3.  **Migrasi Database**
     Jalankan script migrasi untuk membuat tabel yang diperlukan:
@@ -76,12 +76,12 @@ npm start
 - Set environment variables di dashboard Vercel berdasarkan `.env.production.example`.
 - Gunakan region Vercel yang dekat dengan region database. Jika database Neon Anda berada di `ap-southeast-1`, pilih region deploy yang sedekat mungkin untuk menekan latency.
 - `VITE_ENABLE_REALTIME_ALERTS=false` disarankan di Vercel karena WebSocket tidak menjadi jalur realtime utama pada serverless runtime.
-- `build:vercel` saat ini menjalankan migrasi database sebelum build, jadi `DATABASE_URL` harus tersedia pada build environment Vercel.
+- `build:vercel` sekarang hanya membangun frontend. Jalankan `npm run migrate` secara terpisah saat menyiapkan atau memperbarui schema production.
 
 ## API Key Management & Troubleshooting
 
 ### Rotasi Key Otomatis
-Pada mode no-Redis cepat stabil, auto-rotation lintas instance dinonaktifkan sementara.
+Pada mode serverless ringan, auto-rotation lintas instance dinonaktifkan sementara.
 - Sistem tetap mencatat anomali dan membuat alert.
 - Rotasi manual dari dashboard tetap tersedia.
 

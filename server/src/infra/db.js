@@ -1,21 +1,42 @@
 import { Pool } from "pg";
 import { config } from "../config.js";
 
+const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function isLocalDbHost(hostname = "") {
+  const normalized = String(hostname).trim().toLowerCase();
+  return LOCAL_DB_HOSTS.has(normalized) || normalized.endsWith(".local");
+}
+
 /** Untuk Neon: pakai verify penuh dan sslmode=verify-full agar tidak warning pg v9. */
 function getDbConfig() {
   let url = config.databaseUrl || "";
   if (!url) return { connectionString: "", ssl: undefined };
 
-  let ssl = undefined;
-  if (url.includes("neon.tech")) {
-    ssl = { rejectUnauthorized: true };
-    if (url.includes("sslmode=require") && !url.includes("sslmode=verify-full")) {
-      url = url.replace(/sslmode=require/g, "sslmode=verify-full");
-    }
-  } else if (url.includes("sslmode=require") || url.includes("sslmode=verify-full")) {
-    ssl = { rejectUnauthorized: true };
+  let parsed = null;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { connectionString: url, ssl: undefined };
   }
 
+  const hostname = parsed.hostname?.toLowerCase() ?? "";
+  const sslMode = parsed.searchParams.get("sslmode");
+  let ssl = undefined;
+  const shouldUseSsl = hostname.includes("neon.tech")
+    || sslMode === "require"
+    || sslMode === "verify-full"
+    || ((config.isProduction || config.isServerless) && !isLocalDbHost(hostname) && sslMode !== "disable");
+
+  if (hostname.includes("neon.tech")) {
+    ssl = { rejectUnauthorized: true };
+    parsed.searchParams.set("sslmode", "verify-full");
+  } else if (shouldUseSsl) {
+    ssl = { rejectUnauthorized: true };
+    if (!sslMode) parsed.searchParams.set("sslmode", "require");
+  }
+
+  url = parsed.toString();
   return { connectionString: url, ssl };
 }
 

@@ -56,7 +56,8 @@ export const createServerContext = async () => {
   assertConfig();
 
   const db = new PoolManager({ initialMax: config.dbMaxPool });
-  if (config.enableRuntimeMigrations) {
+  const runtimeMigrationsEnabled = config.enableRuntimeMigrations && !config.isServerless;
+  if (runtimeMigrationsEnabled) {
     await runMigrations(db);
     await ensureApiKeySchema(db);
     await ensureObservabilitySchema(db);
@@ -67,6 +68,7 @@ export const createServerContext = async () => {
   const l2 = new L2Cache();
   const rateLimitStore = createMemoryStore();
   const ws = createWsHub();
+  const gatewayLogMode = config.isServerless ? "light" : "full";
 
   const ring = new ConsistentHashRing(config.upstreams, { replicas: 200 });
   const breaker = new CircuitBreaker();
@@ -80,7 +82,8 @@ export const createServerContext = async () => {
     sharedStateMode: "local-memory",
     cacheMode: "local-memory",
     rateLimitMode: "local-memory",
-    runtimeMigrationsEnabled: config.enableRuntimeMigrations,
+    runtimeMigrationsEnabled,
+    observabilityMode: gatewayLogMode,
   };
   const refreshHealth = async () => {
     const dbStartedAt = performance.now();
@@ -109,7 +112,8 @@ export const createServerContext = async () => {
 
   console.info("[Startup] createServerContext ready", {
     isServerless: config.isServerless,
-    enableRuntimeMigrations: config.enableRuntimeMigrations,
+    enableRuntimeMigrations: runtimeMigrationsEnabled,
+    gatewayLogMode,
     dbMaxPool: config.dbMaxPool,
     startupMs: Math.round(performance.now() - startupStartedAt),
   });
@@ -119,7 +123,7 @@ export const createServerContext = async () => {
     await Promise.allSettled([db.end?.()]);
   };
 
-  return { db, l1, l2, rateLimitStore, ws, ring, breaker, providerUpstreams, health, refreshHealth, shutdown };
+  return { db, l1, l2, rateLimitStore, ws, ring, breaker, providerUpstreams, gatewayLogMode, health, refreshHealth, shutdown };
 };
 
 export const createApp = (ctx) => {

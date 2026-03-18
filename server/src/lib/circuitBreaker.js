@@ -38,7 +38,10 @@ export class CircuitBreaker {
   async run(key, fn) {
     if (!this.canPass(key)) throw new Error("CircuitOpen");
     const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), this.timeoutMs);
+    const t = setTimeout(
+      () => controller.abort(new DOMException(`Upstream request timed out after ${this.timeoutMs}ms`, "TimeoutError")),
+      this.timeoutMs,
+    );
     try {
       const result = await fn({ signal: controller.signal });
       this.onSuccess(key);

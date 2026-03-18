@@ -66,8 +66,8 @@ export const config = {
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? "60000"),
   rateLimitDefault: Number(process.env.RATE_LIMIT_DEFAULT ?? "1000"),
   apiKeyGraceMs: Number(process.env.API_KEY_GRACE_MS ?? "60000"),
-  breakerTimeoutMs: Number(process.env.BREAKER_TIMEOUT_MS ?? "500"),
-  breakerHalfOpenAfterMs: Number(process.env.BREAKER_HALF_OPEN_AFTER_MS ?? "500"),
+  breakerTimeoutMs: parseNumber(process.env.BREAKER_TIMEOUT_MS, isServerless ? 15000 : 8000),
+  breakerHalfOpenAfterMs: parseNumber(process.env.BREAKER_HALF_OPEN_AFTER_MS, 2000),
   maxUploadBytes: parseNumber(process.env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024),
   maxProxyBodyBytes: parseNumber(process.env.MAX_PROXY_BODY_BYTES, 2 * 1024 * 1024),
   upstreams: [],
@@ -90,7 +90,7 @@ export const config = {
   isServerless,
   dbMaxPool: Number(
     process.env.DB_MAX_POOL ??
-    (isServerless ? "2" : "10")
+    (isServerless ? "1" : "10")
   ),
   isProduction,
 };

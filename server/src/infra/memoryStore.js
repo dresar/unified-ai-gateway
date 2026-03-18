@@ -1,5 +1,5 @@
 /**
- * In-memory store dengan API mirip Redis. Dipakai kalau tidak pakai Redis.
+ * In-memory store dengan kontrak key-value sederhana untuk cache dan rate limit lokal.
  * get, set, del, incr, pexpire, expire, eval (untuk rate limit), ping, connect.
  */
 const store = new Map();

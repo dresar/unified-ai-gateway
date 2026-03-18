@@ -1,4 +1,7 @@
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "";
+const apiBaseUrl =
+  (import.meta.env.VITE_API_BASE_URL as string | undefined)
+  ?? (import.meta.env.VITE_GATEWAY_URL as string | undefined)
+  ?? "";
 
 type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;

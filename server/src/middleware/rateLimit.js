@@ -1,22 +1,6 @@
 import { config } from "../config.js";
 
-const lua = `
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local windowMs = tonumber(ARGV[2])
-local limit = tonumber(ARGV[3])
-
-local current = redis.call("INCR", key)
-if current == 1 then
-  redis.call("PEXPIRE", key, windowMs)
-end
-
-local ttl = redis.call("PTTL", key)
-local remaining = limit - current
-if remaining < 0 then remaining = 0 end
-
-return { current, ttl, remaining }
-`;
+const rateLimitScript = "rate-limit-window";
 
 export const rateLimit = (store, { keyPrefix = "rl", limit = config.rateLimitDefault, windowMs = config.rateLimitWindowMs, onLimitExceeded } = {}) =>
   async (c, next) => {
@@ -35,7 +19,7 @@ export const rateLimit = (store, { keyPrefix = "rl", limit = config.rateLimitDef
     let remaining;
     try {
       [current, ttl, remaining] = await store.eval(
-        lua,
+        rateLimitScript,
         1,
         key,
         String(now),
