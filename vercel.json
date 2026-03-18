@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build:vercel",
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/index.js" },
+    { "source": "/gateway/(.*)", "destination": "/api/index.js" },
+    { "source": "/healthz", "destination": "/api/index.js" },
+    { "source": "/((?!api/|gateway/|healthz|assets/|favicon\\.ico|placeholder\\.svg|robots\\.txt).*)", "destination": "/index.html" }
+  ]
+}

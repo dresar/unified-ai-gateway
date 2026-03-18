@@ -1,73 +1,105 @@
-# Welcome to your Lovable project
+# Unified AI Gateway
 
-## Project info
+Gateway API kinerja tinggi dengan manajemen API key terpusat, load balancing, caching berlapis, dan dukungan serverless. Dibangun dengan Hono, React, dan Tailwind CSS dalam satu paket monorepo ringan.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Fitur Utama
 
-## How can I edit this code?
+- **Kinerja Ekstrem**: Target latensi ≤0,1 detik.
+- **Manajemen API Key**:
+  - Generator secure 256-bit dengan prefix tenant.
+  - Rotasi otomatis saat error rate tinggi (>3 error/5s).
+  - Health check sub-millisecond.
+  - Kuota dan rate limiting (Redis).
+- **Arsitektur Micro-service Berlapis**:
+  - **L1 Cache**: In-memory LRU (lokal).
+  - **L2 Cache**: Redis (terdistribusi).
+  - **L3**: CDN (via header cache-control).
+  - **Circuit Breaker**: Half-open setelah 500ms.
+  - **Consistent Hashing**: Load balancing upstream.
+- **Keamanan**: JWT + HMAC Signature verification.
+- **Serverless Ready**: Kompatibel dengan Node.js runtime (Lambda, Railway, dll).
+- **Frontend Dashboard**: React + Shadcn UI untuk monitoring real-time.
+- **Playground**: Uji coba chat AI (Google Gemini, Groq) dan upload cloud (Cloudinary, ImageKit). Tidak memakai OpenAI — hanya Gemini API dan Groq API. Model default: Gemini 2.5 Flash, Groq Llama 3.2 3B; daftar model bisa dipilih dari database.
+- **Apify Test Page**: Uji `verify`, list actors/tasks, run actor/task, status run, dan dataset items lewat provider `apify`.
 
-There are several ways of editing your application.
+## Prasyarat
 
-**Use Lovable**
+- Node.js v18+
+- PostgreSQL
+- Redis (atau kompatibel, misal Upstash untuk serverless)
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Setup
 
-Changes made via Lovable will be committed automatically to this repo.
+1.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
 
-**Use your preferred IDE**
+2.  **Konfigurasi Environment**
+    Buat file `.env` di root project:
+    ```env
+    PORT=8787
+    DATABASE_URL=postgresql://user:pass@host/dbname?sslmode=require
+    JWT_SECRET=rahasia_super_panjang_minimal_32_karakter
+    ```
+    Untuk production serverless (Vercel/Lambda), gunakan template [`.env.production.example`](.env.production.example) dan set `REDIS_URL` agar rate limit/cache shared antar instance. Tanpa `REDIS_URL`, state hanya tersimpan per worker dan perilaku production tidak konsisten.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+3.  **Migrasi Database**
+    Jalankan script migrasi untuk membuat tabel yang diperlukan:
+    ```bash
+    npm run migrate
+    ```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Menjalankan Aplikasi
 
-Follow these steps:
+### Development
+Menjalankan server backend dan frontend (Vite) secara bersamaan (perlu 2 terminal atau concurrent, saat ini terpisah):
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+Terminal 1 (Server):
+```bash
+npm run dev:server
 ```
 
-**Edit a file directly in GitHub**
+Terminal 2 (Frontend):
+```bash
+npm run dev
+```
+Frontend akan berjalan di `http://localhost:8080` dan proxy ke backend di `http://localhost:8787`.
+Untuk uji Apify dari dashboard, simpan dulu credential `api_token` di halaman `Credentials`, lalu buat Gateway API key dengan provider `apify`, kemudian buka halaman `Test Apify`.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+### Production
+Build frontend dan jalankan server:
+```bash
+npm run build
+npm start
+```
 
-**Use GitHub Codespaces**
+### Vercel Production
+- Frontend statis dibangun ke `dist`, lalu route `/api/*`, `/gateway/*`, dan `/healthz` diarahkan ke `api/index.js` lewat `vercel.json`.
+- Set environment variables di dashboard Vercel berdasarkan `.env.production.example`.
+- Gunakan region Vercel yang dekat dengan region database. Jika database Neon Anda berada di `ap-southeast-1`, pilih region deploy yang sedekat mungkin untuk menekan latency.
+- `REDIS_URL` sangat disarankan untuk production agar rate limit, cache, dan health state shared antar instance.
+- `VITE_ENABLE_REALTIME_ALERTS=false` disarankan di Vercel karena WebSocket tidak menjadi jalur realtime utama pada serverless runtime.
+- `build:vercel` saat ini menjalankan migrasi database sebelum build, jadi `DATABASE_URL` harus tersedia pada build environment Vercel.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## API Key Management & Troubleshooting
 
-## What technologies are used for this project?
+### Rotasi Key Otomatis
+Sistem akan memantau error rate (status 4xx/5xx) pada setiap API Key.
+- **Trigger**: > 3 error dalam 5 detik.
+- **Action**:
+  1. Key lama di-mark `disabled` namun diberi grace period (default 60s) agar request in-flight tidak gagal.
+  2. Key baru digenerate otomatis.
+  3. Key baru dikembalikan ke klien (jika klien mendukung protokol rotasi) atau admin diberitahu via WebSocket.
+  4. Cache L1/L2 untuk key lama di-invalidasi.
 
-This project is built with:
+### Troubleshooting
+- **Error "Email sudah terdaftar" saat register**: Cek tabel `users`, email harus unik.
+- **Database Error**: Pastikan PostgreSQL berjalan dan user memiliki hak akses `CREATE TABLE` untuk migrasi.
+- **CORS Error**: Backend sudah dikonfigurasi `cors()`, pastikan frontend mengakses via proxy atau URL yang benar.
+- **Memory Usage Tinggi**: Cek konfigurasi `DB_MAX_POOL` (turunkan ke 1-2 untuk serverless) dan L1 Cache size (default 1000 item).
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Deployment Serverless
+Aplikasi ini dirancang "stateless" (state di DB; cache in-memory).
+- **AWS Lambda / Vercel**: Gunakan adapter Hono untuk serverless.
+- **Railway / Render**: Deploy sebagai Node.js service biasa (`npm start`). Set `DB_MAX_POOL=5` atau lebih rendah sesuai resource.
