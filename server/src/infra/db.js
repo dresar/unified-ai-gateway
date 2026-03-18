@@ -21,7 +21,14 @@ function getDbConfig() {
 
 export const createPool = (max) => {
   const { connectionString, ssl } = getDbConfig();
-  return new Pool({ connectionString, ssl, max });
+  return new Pool({
+    connectionString,
+    ssl,
+    max,
+    connectionTimeoutMillis: 15000,
+    idleTimeoutMillis: 10000,
+    keepAlive: true,
+  });
 };
 
 export class PoolManager {

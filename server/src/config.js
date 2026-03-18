@@ -60,6 +60,7 @@ export const config = {
   port: Number(process.env.PORT ?? "8787"),
   databaseUrl: process.env.DATABASE_URL ?? "",
   jwtSecret: process.env.JWT_SECRET ?? "",
+  corsAllowAll: parseBoolean(process.env.CORS_ALLOW_ALL, true),
   hmacMaxSkewMs: Number(process.env.HMAC_MAX_SKEW_MS ?? "30000"),
   nonceTtlSeconds: Number(process.env.NONCE_TTL_SECONDS ?? "30"),
   rateLimitWindowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? "60000"),

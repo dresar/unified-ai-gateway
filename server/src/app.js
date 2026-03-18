@@ -36,7 +36,8 @@ import { chatWithProvider, uploadToCloud, deleteFromCloud } from "./services/pla
 import { runMigrations } from "./infra/runMigrations.js";
 
 const resolveCorsOrigin = (origin) => {
-  if (!origin) return null;
+  if (!origin) return "*";
+  if (config.corsAllowAll) return origin;
   return config.corsOrigins.includes(origin) ? origin : null;
 };
 
@@ -51,6 +52,7 @@ const canonicalizeSearch = (urlString) => {
 const hashCacheSuffix = (value) => createHash("sha256").update(value).digest("hex").slice(0, 24);
 
 export const createServerContext = async () => {
+  const startupStartedAt = performance.now();
   assertConfig();
 
   const db = new PoolManager({ initialMax: config.dbMaxPool });
@@ -81,12 +83,14 @@ export const createServerContext = async () => {
     runtimeMigrationsEnabled: config.enableRuntimeMigrations,
   };
   const refreshHealth = async () => {
+    const dbStartedAt = performance.now();
     try {
       await db.query("select 1 as ok");
       health.dbOk = true;
     } catch {
       health.dbOk = false;
     }
+    health.dbLatencyMs = Math.round(performance.now() - dbStartedAt);
     health.ok = health.dbOk && health.sharedStateOk;
     health.checkedAt = Date.now();
   };
@@ -102,6 +106,13 @@ export const createServerContext = async () => {
   } else {
     health.checkedAt = Date.now();
   }
+
+  console.info("[Startup] createServerContext ready", {
+    isServerless: config.isServerless,
+    enableRuntimeMigrations: config.enableRuntimeMigrations,
+    dbMaxPool: config.dbMaxPool,
+    startupMs: Math.round(performance.now() - startupStartedAt),
+  });
 
   const shutdown = async () => {
     if (healthTimer) clearInterval(healthTimer);
@@ -253,18 +264,32 @@ export const createApp = (ctx) => {
       responses: { 200: { description: "OK" } },
     },
     async (c) => {
+      const loginStartedAt = performance.now();
       try {
         const { email, password } = c.req.valid("json");
         const normalizedEmail = email.trim().toLowerCase();
+        const dbStartedAt = performance.now();
         const { rows } = await ctx.db.query(
           "select id, email, display_name, password_hash, hmac_secret from public.users where email = $1 limit 1",
           [normalizedEmail],
         );
+        const dbMs = Math.round(performance.now() - dbStartedAt);
         const user = rows[0];
         if (!user) return c.json({ error: "Email atau password salah." }, 401);
+        const bcryptStartedAt = performance.now();
         const ok = await bcrypt.compare(password, user.password_hash);
+        const bcryptMs = Math.round(performance.now() - bcryptStartedAt);
         if (!ok) return c.json({ error: "Email atau password salah." }, 401);
+        const jwtStartedAt = performance.now();
         const token = await signJwt({ sub: user.id, email: user.email, displayName: user.display_name ?? null });
+        const jwtMs = Math.round(performance.now() - jwtStartedAt);
+        console.info("[Auth] login success", {
+          email: normalizedEmail,
+          dbMs,
+          bcryptMs,
+          jwtMs,
+          totalMs: Math.round(performance.now() - loginStartedAt),
+        });
         return c.json({ token, user: { id: user.id, email: user.email, displayName: user.display_name ?? null } });
       } catch (error) {
         console.error("[Auth] login failed", error);

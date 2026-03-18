@@ -40,7 +40,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const result = await apiFetch<{ token: string; user: { id: string; email: string; displayName: string | null } }>(
         "/api/auth/login",
-        { method: "POST", body: JSON.stringify({ email, password }), timeoutMs: 5000 },
+        { method: "POST", body: JSON.stringify({ email, password }), timeoutMs: 15000, cache: "no-store" },
       );
       setAuthToken(result.token);
       setUser(result.user);
@@ -53,7 +53,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         else if (err.status >= 500) message = "Server login sedang bermasalah. Periksa deployment atau coba lagi sesaat.";
         else message = err.message;
       } else if (err instanceof Error && (err.name === "AbortError" || err.name === "TimeoutError")) {
-        message = "Login melebihi batas 5 detik. Kemungkinan database, Redis, atau server Vercel sedang lambat.";
+        message = "Login melebihi batas 15 detik. Kemungkinan cold start Vercel atau koneksi database sedang lambat.";
       } else if (err instanceof TypeError) {
         message = "Server tidak dapat dijangkau. Periksa URL API atau status server.";
       }
