@@ -26,6 +26,9 @@ export const createPool = (max) => {
     ssl,
     max,
     connectionTimeoutMillis: 15000,
+    query_timeout: 15000,
+    statement_timeout: 15000,
+    idle_in_transaction_session_timeout: 15000,
     idleTimeoutMillis: 10000,
     keepAlive: true,
   });
