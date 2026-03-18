@@ -107,7 +107,11 @@ export const createServerContext = async () => {
     healthTimer = setInterval(() => refreshHealth().catch(() => {}), 5000);
     healthTimer.unref?.();
   }
-  await refreshHealth();
+  if (!config.isServerless) {
+    await refreshHealth();
+  } else {
+    health.checkedAt = Date.now();
+  }
 
   const shutdown = async () => {
     if (healthTimer) clearInterval(healthTimer);

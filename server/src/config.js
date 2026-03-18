@@ -8,6 +8,14 @@ const parseNumber = (value, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const normalizeOrigin = (value) => {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed.replace(/\/+$/, "");
+  return `https://${trimmed.replace(/\/+$/, "")}`;
+};
+
 const appMode = (process.env.MODE ?? process.env.NODE_ENV ?? "development").trim().toLowerCase();
 const isProduction = process.env.NODE_ENV === "production" || appMode === "production";
 const isServerless = !!(
@@ -20,11 +28,23 @@ const parseOrigins = () => {
   const raw = process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN ?? "";
   const origins = raw
     .split(",")
-    .map((value) => value.trim())
+    .map((value) => normalizeOrigin(value))
     .filter(Boolean);
 
   if (origins.length > 0) return Array.from(new Set(origins));
-  if (isProduction) return [];
+  if (isProduction) {
+    return Array.from(
+      new Set(
+        [
+          process.env.VERCEL_PROJECT_PRODUCTION_URL,
+          process.env.VERCEL_BRANCH_URL,
+          process.env.VERCEL_URL,
+        ]
+          .map((value) => normalizeOrigin(value))
+          .filter(Boolean)
+      )
+    );
+  }
 
   return [
     "http://localhost:8080",
@@ -40,6 +60,8 @@ export const config = {
   port: Number(process.env.PORT ?? "8787"),
   databaseUrl: process.env.DATABASE_URL ?? "",
   redisUrl: process.env.REDIS_URL ?? "",
+  upstashRedisRestUrl: process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL ?? "",
+  upstashRedisRestToken: process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN ?? "",
   jwtSecret: process.env.JWT_SECRET ?? "",
   hmacMaxSkewMs: Number(process.env.HMAC_MAX_SKEW_MS ?? "30000"),
   nonceTtlSeconds: Number(process.env.NONCE_TTL_SECONDS ?? "30"),
@@ -90,7 +112,14 @@ export const assertConfig = () => {
     );
   }
   if (!config.jwtSecret) throw new Error("JWT_SECRET wajib di-set");
-  if (config.isProduction && config.requireRedisInProduction && !config.redisUrl) {
-    throw new Error("REDIS_URL wajib di-set untuk production ketika REQUIRE_REDIS_IN_PRODUCTION=true");
+  if (
+    config.isProduction &&
+    config.requireRedisInProduction &&
+    !config.redisUrl &&
+    !(config.upstashRedisRestUrl && config.upstashRedisRestToken)
+  ) {
+    throw new Error(
+      "Redis production wajib di-set. Gunakan REDIS_URL, pasangan UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN, atau KV_REST_API_URL/KV_REST_API_TOKEN."
+    );
   }
 };
