@@ -30,6 +30,18 @@ const enableRealtimeAlerts = import.meta.env.DEV || import.meta.env.VITE_ENABLE_
 
 const getWsUrl = (token: string) => {
   if (typeof window === "undefined") return null
+  // Jika VITE_API_BASE_URL diset (misal deploy di Render dengan domain berbeda),
+  // gunakan host dari env tersebut agar WebSocket terhubung ke backend yang benar.
+  const apiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ""
+  if (apiBase) {
+    try {
+      const u = new URL(apiBase)
+      const protocol = u.protocol === "https:" ? "wss:" : "ws:"
+      return `${protocol}//${u.host}/ws?token=${encodeURIComponent(token)}`
+    } catch {
+      // fallback ke same-host jika URL tidak valid
+    }
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
   return `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`
 }
