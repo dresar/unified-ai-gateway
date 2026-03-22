@@ -1,3 +1,4 @@
+-- Mirror of server/db/schema.sql — edit both when changing schema (backend migrations read server/db).
 -- Schema dasar untuk unified-ai-gateway. Idempotent: create if not exists.
 -- Tabel api_keys dan gateway_request_logs dibuat di ensureApiKeySchema (apiKeys.js).
 -- Tabel ai_models dibuat di ensureAiModelsSchema (aiModels.js).

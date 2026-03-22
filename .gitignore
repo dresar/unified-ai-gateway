@@ -13,6 +13,8 @@ dist-ssr
 .env
 .env.*
 !.env.production.example
+!**/.env.example
+!**/.env.cpanel.example
 *.local
 
 # Editor directories and files
